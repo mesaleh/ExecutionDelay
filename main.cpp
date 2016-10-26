@@ -6,10 +6,19 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(linker, "/INCREMENTAL:NO")
-// /INCREMENTAL[:NO]
 
+#define ProcessThreadStackAllocation 0x29
+struct STACK_ALLOCATION_COMPACT
+{
+	unsigned long dwReserveSize;
+	unsigned long ZeroBits;
+	unsigned long ReturnedBase;
+};
+
+typedef  DWORD(__stdcall *pZwSetInformationProcess)(HANDLE, unsigned long, void*, unsigned long);
 typedef  DWORD(__stdcall *pfZwDelayExecution)(BOOLEAN, __int64*);
-pfZwDelayExecution ZwDelayExecution;
+pfZwDelayExecution			ZwDelayExecution;
+pZwSetInformationProcess	ZwSetInformationProcess;
 
 void ApisInit()
 {
@@ -19,7 +28,8 @@ void ApisInit()
 	hinstLib = LoadLibrary(TEXT("ntdll"));
 
 	// Get the pointer to the function
-	ZwDelayExecution = (pfZwDelayExecution)GetProcAddress(hinstLib, "ZwDelayExecution");
+	ZwDelayExecution		= (pfZwDelayExecution)		GetProcAddress(hinstLib, "ZwDelayExecution");
+	ZwSetInformationProcess = (pZwSetInformationProcess)GetProcAddress(hinstLib, "ZwSetInformationProcess");
 }
 
 void showMessage()
@@ -30,6 +40,7 @@ void showMessage()
 	printf("%d- Delay using SleepEx...\n", ++num);
 	printf("%d- Delay using ZwDelayExecution...\n", ++num);
 	printf("%d- Delay using ping...\n", ++num);
+	printf("%d- Delay using Loopless Repeatition...\n", ++num);
 	printf("\n");
 	printf("Please enter a choice: ");
 }
@@ -62,11 +73,15 @@ __declspec(naked) void __fastcall looplessRepeatition()
 {
 	static LPVOID new_addr = NULL;
 	static LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
-	static int rep = 1000000;			// How many times to repeat.
+	static int rep = 200000;			// How many times to repeat.
+	static DWORD oldp;
+	static STACK_ALLOCATION_COMPACT Stk;
+	static int func_size = 0;			// The size of this function is bytes.
 
 	if (prev_addr)	VirtualFree(prev_addr, 0, MEM_RELEASE);
 
-	//dummy code
+	//========= begin dummy code ======== //
+	// dummy code here can be assembly instructions or C language. However, it must consider naked functions restrictions.
 	__asm {
 		nop
 		nop
@@ -77,21 +92,39 @@ __declspec(naked) void __fastcall looplessRepeatition()
 		nop
 		nop
 	}
-		
+	//========= end dummy code ========== //
+
 	if (--rep <= 0)
 		__asm ret;
 	
 	prev_addr = new_addr;
-	// allocate a new instance of this function, check this to enhance and get random addresses: http://waleedassar.blogspot.com/2013/01/a-real-random-virtualalloc.html
-	new_addr = VirtualAlloc(NULL, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+
+	// get function size
+	__asm {
+		mov eax, end
+		sub eax, dword ptr [looplessRepeatition]
+		mov func_size, eax
+	}
+	// allocate a new instance of this function. To get random addresses, credits to: http://waleedassar.blogspot.com/2013/01/a-real-random-virtualalloc.html
+	Stk.ReturnedBase = Stk.ZeroBits = 0;
+	Stk.dwReserveSize = func_size;
+	if (ZwSetInformationProcess((HANDLE)-1, ProcessThreadStackAllocation, &Stk, sizeof(Stk)) < 0)
+		__asm ret;	// error
+	
+	new_addr = VirtualAlloc((LPVOID)Stk.ReturnedBase, func_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+	if (!new_addr)
+		__asm ret; // error
+		
 	// copy the function to the new location
 	__asm {
-		mov esi, dword ptr [looplessRepeatition]
+		mov esi, dword ptr[looplessRepeatition]
 		mov edi, new_addr
-		mov ecx, 0x1000
+		mov ecx, func_size
 		rep movsb
-	}	
-	__asm jmp new_addr;
+		jmp new_addr
+	}
+end:
+	rep += 0; // dummy line to get the compiler not to error on the label "end"
 }
 
 int main()
@@ -122,12 +155,12 @@ int main()
 		break;
 
 	case 4:
-		printf("=== Delay using ping...\n");
+		printf("=== Delay using ping via IcmpSendEcho() ...\n");
 		ping(1000);
 		break;
 
 	case 5:
-		printf("=== Delay using Loopless repeation...\n");
+		printf("=== Delay using Loopless Repeation...\n");
 		looplessRepeatition();
 		break;
 
