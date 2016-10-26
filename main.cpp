@@ -5,6 +5,8 @@
 #include <stdio.h>
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(linker, "/INCREMENTAL:NO")
+// /INCREMENTAL[:NO]
 
 typedef  DWORD(__stdcall *pfZwDelayExecution)(BOOLEAN, __int64*);
 pfZwDelayExecution ZwDelayExecution;
@@ -56,9 +58,13 @@ void ping(int Timeout)
 	dwRetVal = IcmpSendEcho(hIcmpFile, ipaddr, NULL, 0, NULL, ReplyBuffer, ReplySize, Timeout);
 }
 
-void __fastcall looplessRepeatition(LPVOID prev_addr)
+__declspec(naked) void __fastcall looplessRepeatition() 
 {
-	static int rep = 1000;	
+	static LPVOID new_addr = NULL;
+	static LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
+	static int rep = 1000000;			// How many times to repeat.
+
+	if (prev_addr)	VirtualFree(prev_addr, 0, MEM_RELEASE);
 
 	//dummy code
 	__asm {
@@ -71,20 +77,21 @@ void __fastcall looplessRepeatition(LPVOID prev_addr)
 		nop
 		nop
 	}
-
-	rep--;
-	if (rep <= 0)
-		return;
+		
+	if (--rep <= 0)
+		__asm ret;
 	
-	LPVOID new_addr = VirtualAlloc(NULL, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-	memcpy_s(new_addr, 0x1000, looplessRepeatition, 0x1000);
-
+	prev_addr = new_addr;
+	// allocate a new instance of this function, check this to enhance and get random addresses: http://waleedassar.blogspot.com/2013/01/a-real-random-virtualalloc.html
+	new_addr = VirtualAlloc(NULL, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+	// copy the function to the new location
 	__asm {
-		mov ecx, prev_addr
-		jmp new_addr
-	}
-
-	if (prev_addr)	VirtualFree(prev_addr, 0x1000, MEM_RELEASE);	
+		mov esi, dword ptr [looplessRepeatition]
+		mov edi, new_addr
+		mov ecx, 0x1000
+		rep movsb
+	}	
+	__asm jmp new_addr;
 }
 
 int main()
@@ -117,6 +124,11 @@ int main()
 	case 4:
 		printf("=== Delay using ping...\n");
 		ping(1000);
+		break;
+
+	case 5:
+		printf("=== Delay using Loopless repeation...\n");
+		looplessRepeatition();
 		break;
 
 	default:
