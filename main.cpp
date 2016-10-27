@@ -45,8 +45,8 @@ void showMessage()
 	printf("Please enter a choice: ");
 }
 
-/* perform ping using WinAPIs*/
-void ping(int Timeout)
+/* perform ping using IcmpSendEcho*/
+void customPing(int Timeout)
 {
 	HANDLE hIcmpFile;
 	unsigned long ipaddr;
@@ -71,14 +71,6 @@ void ping(int Timeout)
 
 __declspec(naked) void __fastcall looplessRepeatition() 
 {
-	static LPVOID new_addr = NULL;
-	static LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
-	static int rep = 200000;			// How many times to repeat.
-	static DWORD oldp;
-	static STACK_ALLOCATION_COMPACT Stk;
-	static int func_size = 0;			// The size of this function is bytes.
-
-	if (prev_addr)	VirtualFree(prev_addr, 0, MEM_RELEASE);
 
 	//========= begin dummy code ======== //
 	// dummy code here can be assembly instructions or C language. However, it must consider naked functions restrictions.
@@ -94,9 +86,20 @@ __declspec(naked) void __fastcall looplessRepeatition()
 	}
 	//========= end dummy code ========== //
 
+	static LPVOID new_addr = NULL;
+	static LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
+	static int rep = 200000;			// How many times to repeat.
+	static STACK_ALLOCATION_COMPACT Stk;
+	static int func_size = 0;			// The size of this function is bytes.
+
+	// free previous region
+	if (prev_addr)	VirtualFree(prev_addr, 0, MEM_RELEASE);
+	
+	// is it the end of loop?
 	if (--rep <= 0)
 		__asm ret;
 	
+	// save previoius address to be freed in next iteration
 	prev_addr = new_addr;
 
 	// get function size
@@ -105,16 +108,18 @@ __declspec(naked) void __fastcall looplessRepeatition()
 		sub eax, dword ptr [looplessRepeatition]
 		mov func_size, eax
 	}
-	// allocate a new instance of this function. To get random addresses, credits to: http://waleedassar.blogspot.com/2013/01/a-real-random-virtualalloc.html
+
+	// allocate a new instance of this function. To get random addresses, credits go to: http://waleedassar.blogspot.com/2013/01/a-real-random-virtualalloc.html
 	Stk.ReturnedBase = Stk.ZeroBits = 0;
 	Stk.dwReserveSize = func_size;
-	if (ZwSetInformationProcess((HANDLE)-1, ProcessThreadStackAllocation, &Stk, sizeof(Stk)) < 0)
+	if (ZwSetInformationProcess((HANDLE)-1, ProcessThreadStackAllocation, &Stk, sizeof(Stk)) < 0) {
 		__asm ret;	// error
-	
+	}
 	new_addr = VirtualAlloc((LPVOID)Stk.ReturnedBase, func_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-	if (!new_addr)
+	if (!new_addr) {
 		__asm ret; // error
-		
+	}
+
 	// copy the function to the new location
 	__asm {
 		mov esi, dword ptr[looplessRepeatition]
@@ -124,7 +129,7 @@ __declspec(naked) void __fastcall looplessRepeatition()
 		jmp new_addr
 	}
 end:
-	rep += 0; // dummy line to get the compiler not to error on the label "end"
+	__asm nop; // dummy line to get the compiler not to error on the label "end"
 }
 
 int main()
@@ -155,8 +160,8 @@ int main()
 		break;
 
 	case 4:
-		printf("=== Delay using ping via IcmpSendEcho() ...\n");
-		ping(1000);
+		printf("=== Delay using Custom ping via IcmpSendEcho() ...\n");
+		customPing(1000);
 		break;
 
 	case 5:
