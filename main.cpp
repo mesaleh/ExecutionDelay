@@ -40,6 +40,7 @@ void showMessage()
 	printf("%d- Delay using SleepEx...\n", ++num);
 	printf("%d- Delay using ZwDelayExecution...\n", ++num);
 	printf("%d- Delay using ping...\n", ++num);
+	printf("%d- Delay using custom ping...\n", ++num);
 	printf("%d- Delay using Loopless Repeatition...\n", ++num);
 	printf("\n");
 	printf("Please enter a choice: ");
@@ -160,11 +161,17 @@ int main()
 		break;
 
 	case 4:
+		// delay time can be controlled by the option -n [number]
+		printf("=== Delay using ping ...\n");
+		system("ping 1.1.1.1 -n 1 >null 2>&1");
+		break; 
+
+	case 5:
 		printf("=== Delay using Custom ping via IcmpSendEcho() ...\n");
 		customPing(1000);
 		break;
-
-	case 5:
+		
+	case 6:
 		printf("=== Delay using Loopless Repeation...\n");
 		looplessRepeatition();
 		break;
