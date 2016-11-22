@@ -70,9 +70,21 @@ void customPing(int Timeout)
 	dwRetVal = IcmpSendEcho(hIcmpFile, ipaddr, NULL, 0, NULL, ReplyBuffer, ReplySize, Timeout);
 }
 
-__declspec(naked) void __fastcall looplessRepeatition() 
+/* 
+* A self-copying function must declare and initialize all the variables before the start of the copied portion.
+* The variables will be allocated on the stack, and keep thier values on every invocation in the same way as static variables.
+*/
+void looplessRepeatition()
 {
+	// all variables must be declared before any code. These declarations will not be copied over.
+	int flag = 0xDEADBEEF;
+	LPVOID new_addr = NULL;
+	LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
+	int rep = 200000;			// How many times to repeat.
+	STACK_ALLOCATION_COMPACT Stk;
+	int func_size = 0;			// The size of this function is bytes.
 
+	start:
 	//========= begin dummy code ======== //
 	// dummy code here can be assembly instructions or C language. However, it must consider naked functions restrictions.
 	__asm {
@@ -87,26 +99,23 @@ __declspec(naked) void __fastcall looplessRepeatition()
 	}
 	//========= end dummy code ========== //
 
-	static LPVOID new_addr = NULL;
-	static LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
-	static int rep = 200000;			// How many times to repeat.
-	static STACK_ALLOCATION_COMPACT Stk;
-	static int func_size = 0;			// The size of this function is bytes.
 
 	// free previous region
 	if (prev_addr)	VirtualFree(prev_addr, 0, MEM_RELEASE);
-	
+
 	// is it the end of loop?
-	if (--rep <= 0)
+	if (--rep <= 0) {
+		__asm push end;
 		__asm ret;
-	
+	}
+
 	// save previoius address to be freed in next iteration
 	prev_addr = new_addr;
 
 	// get function size
 	__asm {
 		mov eax, end
-		sub eax, dword ptr [looplessRepeatition]
+		sub eax, dword ptr[start]
 		mov func_size, eax
 	}
 
@@ -114,16 +123,18 @@ __declspec(naked) void __fastcall looplessRepeatition()
 	Stk.ReturnedBase = Stk.ZeroBits = 0;
 	Stk.dwReserveSize = func_size;
 	if (ZwSetInformationProcess((HANDLE)-1, ProcessThreadStackAllocation, &Stk, sizeof(Stk)) < 0) {
+		__asm push end;
 		__asm ret;	// error
 	}
 	new_addr = VirtualAlloc((LPVOID)Stk.ReturnedBase, func_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 	if (!new_addr) {
+		__asm push end;
 		__asm ret; // error
 	}
 
 	// copy the function to the new location
 	__asm {
-		mov esi, dword ptr[looplessRepeatition]
+		mov esi, dword ptr[start]
 		mov edi, new_addr
 		mov ecx, func_size
 		rep movsb
@@ -132,6 +143,7 @@ __declspec(naked) void __fastcall looplessRepeatition()
 end:
 	__asm nop; // dummy line to get the compiler not to error on the label "end"
 }
+
 
 int main()
 {
