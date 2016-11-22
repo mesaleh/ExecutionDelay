@@ -77,7 +77,6 @@ void customPing(int Timeout)
 void looplessRepeatition()
 {
 	// all variables must be declared before any code. These declarations will not be copied over.
-	int flag = 0xDEADBEEF;
 	LPVOID new_addr = NULL;
 	LPVOID prev_addr = NULL;		// Address of the previously allocated function to delete.
 	int rep = 200000;			// How many times to repeat.
